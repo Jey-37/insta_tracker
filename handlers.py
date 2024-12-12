@@ -62,7 +62,7 @@ async def track_command_handler(message: Message, command: CommandObject):
         if new_posts:
             await answer_post(message, new_posts[0])
     except InstagramException as ex:
-        await message.answer(ex)
+        await message.answer(str(ex))
     except Exception as ex:
         print(ex)
         await message.answer("Failed to create a subscription...")
