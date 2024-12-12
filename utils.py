@@ -18,7 +18,7 @@ async def get_new_user_posts(username: str, after_date: datetime = None) -> list
     try:
         profile = instaloader.Profile.from_username(loader.context, username)
     except ProfileNotExistsException:
-        raise InstagramException(f"Profile wasn't found")
+        raise InstagramException(f"Profile wasn't found or it is restricted")
 
     if profile.mediacount == 0:
         raise InstagramException("No posts were found for this user")
