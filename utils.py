@@ -50,7 +50,7 @@ async def get_new_user_posts(username: str, after_date: datetime = None) -> list
 
 
 def is_valid_string(s: str) -> bool: 
-    return bool(re.match(r'^[\w]+$', s))
+    return bool(re.fullmatch(r'[\w.]+', s))
 
 
 def get_current_utc_datetime() -> datetime:
