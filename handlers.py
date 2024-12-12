@@ -138,7 +138,7 @@ async def check_command_handler(message: Message):
             curr_timestamp = int(get_current_utc_datetime().timestamp())
             profile_posts = await get_new_user_posts(
                 username = username, 
-                after_date = datetime.fromtimestamp(user_subs[username]-86000))
+                after_date = datetime.fromtimestamp(user_subs[username]))
 
             if profile_posts:
                 await message.answer(f"<b>{username}</b> published some new posts ⬇️")
