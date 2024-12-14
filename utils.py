@@ -35,20 +35,20 @@ def get_new_user_posts(
 
     TOP_POSTS_NUM = 4
     posts = []
-    for post in profile.get_posts():
+    posts_iterator = profile.get_posts()
+    for post in posts_iterator:
         posts.append(post)
 
-        if len(posts) == TOP_POSTS_NUM:
-            posts.sort(key=lambda p: p.date_utc, reverse=True)
-
+        if posts_iterator.total_index == TOP_POSTS_NUM:
             if not after_date:
-                return posts[:1]
+                return [posts_iterator.first_item]
 
+            posts.sort(key=lambda p: p.date_utc, reverse=True)
             for i in range(len(posts)):
                 if posts[i].date_utc < after_date:
                     return posts[:i]
 
-        if len(posts) > TOP_POSTS_NUM and post.date_utc < after_date:
+        if posts_iterator.total_index > TOP_POSTS_NUM and post.date_utc < after_date:
             return posts[:-1]
 
         time.sleep(POST_FETCH_DELAY)
@@ -128,22 +128,15 @@ def build_time_diff_string(timediff: timedelta) -> str:
     return s
 
 
-def load_user_data(chat_id: int | str) -> Optional[dict]:
+def load_user_data() -> Optional[dict]:
     init_data = {
         "profiles": {},
         "checking": False
     }
     with open(DATA_FILE, 'r') as file:
-        return json.load(file).get(str(chat_id), init_data)
+        return json.load(file) or init_data
 
 
-def save_user_data(chat_id: int | str, user_data: dict) -> None:
-    with open(DATA_FILE, 'r+') as file:
-        data = json.load(file)
-
-        data[str(chat_id)] = user_data
-
-        file.seek(0)
-        json.dump(data, file)
-
-        file.truncate()
+def save_user_data(data: dict) -> None:
+    with open(DATA_FILE, 'w') as file:
+        json.dump(data, file, indent=4)

@@ -5,13 +5,16 @@ import asyncio
 from datetime import datetime
 
 import instaloader
-from aiogram import Router, Bot
-from aiogram.filters import Command, CommandObject, CommandStart
+from instaloader.exceptions import *
+from aiogram import Router, Bot, F
+from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.utils.chat_action import ChatActionSender
 from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 
 from config import DATA_FILE, USER_POSTS_FETCH_DELAY
 from exceptions import InstagramException
+from states import Login
 from utils import *
 
 
@@ -26,7 +29,7 @@ async def start_command_handler(message: Message):
 async def track_command_handler(
             message: Message, 
             command: CommandObject, 
-            bot: Bot, 
+            bot: Bot,
             loader: instaloader.Instaloader):
     username = command.args
 
@@ -38,19 +41,18 @@ async def track_command_handler(
         await message.answer("Wrong username format!")
         return
 
-    chat_id = str(message.chat.id)
-    data = load_user_data(chat_id)
+    data = load_user_data()
 
     if username in data["profiles"]:
         await message.answer("You are already subscribed on the user")
         return
 
-    async with ChatActionSender.typing(bot=bot, chat_id=chat_id):
+    async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
         try:
             new_posts = await run_sync_in_executor(get_new_user_posts, loader, username)
 
             data["profiles"][username] = int(get_current_utc_datetime().timestamp())
-            save_user_data(chat_id, data)
+            save_user_data(data)
     
             await message.answer("Subscription successfully created!")
             if new_posts:
@@ -64,8 +66,7 @@ async def track_command_handler(
 
 @router.message(Command("my_subs"))
 async def my_subs_command_handler(message: Message):
-    chat_id = str(message.chat.id)
-    data = load_user_data(chat_id)
+    data = load_user_data()
 
     if not data["profiles"]:
         await message.answer("You have no subscriptions")
@@ -83,23 +84,21 @@ async def untrack_command_handler(message: Message, command: CommandObject):
         await message.answer("Please, provide an instagram username as a parameter of the command")
         return
 
-    chat_id = str(message.chat.id)
-    data = load_user_data(chat_id)
+    data = load_user_data()
 
     if username not in data["profiles"]:
         await message.answer("You are not subscribed on the user")
         return
 
     del data["profiles"][username]
-    save_user_data(chat_id, data)
+    save_user_data(data)
     
     await message.answer("Subscription on user successfully removed!")
 
 
 @router.message(Command("check"))
 async def check_command_handler(message: Message, loader: instaloader.Instaloader):
-    chat_id = str(message.chat.id)
-    data = load_user_data(chat_id)
+    data = load_user_data()
 
     if not data["profiles"]:
         await message.answer("You don't have any subscriptions yet")
@@ -110,7 +109,7 @@ async def check_command_handler(message: Message, loader: instaloader.Instaloade
         return
 
     data["checking"] = True
-    save_user_data(chat_id, data)
+    save_user_data(data)
 
     user_subs = data["profiles"]
 
@@ -118,7 +117,7 @@ async def check_command_handler(message: Message, loader: instaloader.Instaloade
     for i, username in enumerate(user_subs):
         try:
             curr_timestamp = int(get_current_utc_datetime().timestamp())
-            profile_posts = await get_new_user_posts(
+            profile_posts = get_new_user_posts(
                 loader = loader,
                 username = username, 
                 after_date = datetime.fromtimestamp(user_subs[username]))
@@ -129,7 +128,7 @@ async def check_command_handler(message: Message, loader: instaloader.Instaloade
                     await answer_post(message, post)
 
             user_subs[username] = curr_timestamp
-            save_user_data(chat_id, data)
+            save_user_data(data)
 
             if i < len(user_subs)-1:
                 await asyncio.sleep(random.randint(USER_POSTS_FETCH_DELAY-20, USER_POSTS_FETCH_DELAY+20))
@@ -140,6 +139,54 @@ async def check_command_handler(message: Message, loader: instaloader.Instaloade
             await message.answer(f"Failed to fetch recent posts of profile {username}")
 
     data["checking"] = False
-    save_user_data(chat_id, data)
+    save_user_data(data)
 
     await message.answer("Fetching recent posts completed 😮‍💨")
+
+
+@router.message(Command("login"))
+async def login_command_handler(
+            message: Message, 
+            command: CommandObject, 
+            state: FSMContext,
+            bot: Bot,
+            loader: instaloader.Instaloader):
+    if loader.context.is_logged_in:
+        await message.answer("You're already signed in")
+        return
+
+    try:
+        user, password = command.args.split()
+    except:
+        await message.answer("Wrong command arguments")
+        return
+
+    async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
+        try:
+            await run_sync_in_executor(loader.login, user, password)
+
+            await message.answer("You've successfully signed in!")
+        except BadCredentialsException:
+            await message.answer("Wrong password")
+        except TwoFactorAuthRequiredException:
+            await message.answer("First step of 2FA login done. Now enter your 2FA code.")
+            await state.set_state(Login.two_factor_auth)
+        except LoginException as ex:
+            logging.error(str(ex), exc_info=True)
+            await message.answer("An error happened during login (e.g. the provided username might not exist)")
+
+
+@router.message(Login.two_factor_auth, F.text)
+async def two_factor_code_handler(
+            message: Message, 
+            state: FSMContext,
+            bot: Bot,
+            loader: instaloader.Instaloader):
+    async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
+        try:
+            await run_sync_in_executor(loader.two_factor_login, message.text)
+
+            await state.clear()
+            await message.answer("You've successfully signed in!")
+        except BadCredentialsException:
+            await message.answer("Verification code is invalid")

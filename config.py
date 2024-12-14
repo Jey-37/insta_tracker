@@ -13,12 +13,21 @@ from dotenv import load_dotenv
 
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+USER_ID = os.getenv('USER_ID')
+
+import json
 
 DATA_FILE = "data.json"
-if not os.path.exists(DATA_FILE) or os.path.getsize(DATA_FILE) == 0:
+try:
+    with open(DATA_FILE, 'r') as file:
+        json.load(file)
+except:
+    init_data = {
+        "profiles": {},
+        "checking": False
+    }
     with open(DATA_FILE, 'w') as file:
-        file.write('{}')
-
+        json.dump(init_data, file)
 
 POST_FETCH_DELAY = 0.3
 USER_POSTS_FETCH_DELAY = 60
