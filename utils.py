@@ -1,6 +1,10 @@
 import re
+import time
+import json
 import asyncio
+from typing import Optional
 from datetime import datetime, timezone, timedelta
+from concurrent.futures import ThreadPoolExecutor
 
 import instaloader
 from instaloader.exceptions import ProfileNotExistsException
@@ -11,10 +15,13 @@ from aiogram.types import (
     InputMediaVideo, InputMediaPhoto)
 
 from exceptions import InstagramException
-from config import loader, POST_FETCH_DELAY
+from config import POST_FETCH_DELAY, DATA_FILE
 
 
-async def get_new_user_posts(username: str, after_date: datetime = None) -> list[instaloader.Post]:
+def get_new_user_posts(
+            loader: instaloader.Instaloader, 
+            username: str, 
+            after_date: Optional[datetime] = None) -> list[instaloader.Post]:
     try:
         profile = instaloader.Profile.from_username(loader.context, username)
     except ProfileNotExistsException:
@@ -44,12 +51,19 @@ async def get_new_user_posts(username: str, after_date: datetime = None) -> list
         if len(posts) > TOP_POSTS_NUM and post.date_utc < after_date:
             return posts[:-1]
 
-        await asyncio.sleep(POST_FETCH_DELAY)
+        time.sleep(POST_FETCH_DELAY)
 
     return posts
 
 
-def is_valid_string(s: str) -> bool: 
+executor_pool = ThreadPoolExecutor()
+
+async def run_sync_in_executor(func, *args):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(executor_pool, func, *args)
+
+
+def is_valid_profile_name(s: str) -> bool: 
     return bool(re.fullmatch(r'[\w.]+', s))
 
 
@@ -112,3 +126,24 @@ def build_time_diff_string(timediff: timedelta) -> str:
     s += f"{(timediff.seconds // 60) % 60} minutes ago"
 
     return s
+
+
+def load_user_data(chat_id: int | str) -> Optional[dict]:
+    init_data = {
+        "profiles": {},
+        "checking": False
+    }
+    with open(DATA_FILE, 'r') as file:
+        return json.load(file).get(str(chat_id), init_data)
+
+
+def save_user_data(chat_id: int | str, user_data: dict) -> None:
+    with open(DATA_FILE, 'r+') as file:
+        data = json.load(file)
+
+        data[str(chat_id)] = user_data
+
+        file.seek(0)
+        json.dump(data, file)
+
+        file.truncate()
